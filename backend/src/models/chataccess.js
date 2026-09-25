@@ -1,12 +1,28 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
 const chatAccessSchema = new mongoose.Schema({
-    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    targetUser: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    validUntil: { type: Date, required: true }
-}, { timestamps: true });
+  buyerId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: true,
+  },
+  targetUserId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "User",
+    required: true,
+  },
+  unlockedAt: {
+    type: Date,
+    default: Date.now,
+  },
+  expiresAt: {
+    type: Date,
+    required: true,
+  },
+});
 
-// Prevent duplicate active unlocks
-chatAccessSchema.index({ user: 1, targetUser: 1 }, { unique: true });
+// Index to quickly check active chat permissions and automatically drop expired records
+chatAccessSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+chatAccessSchema.index({ buyerId: 1, targetUserId: 1 }, { unique: true });
 
-module.exports = mongoose.model('ChatAccess', chatAccessSchema);
+module.exports = mongoose.model("ChatAccess", chatAccessSchema);

@@ -1,10 +1,18 @@
-const express = require('express');
-const { register, verifyOTP, login } = require('../controllers/auth.controller');
-
+const express = require("express");
 const router = express.Router();
 
-router.post('/register', register);
-router.post('/verify-otp', verifyOTP);
-router.post('/login', login);
+// Single import for all auth controllers
+const {
+  register,
+  login,
+  forgotPassword,
+  resetPassword,
+} = require("../controllers/auth.controller");
+
+// Routes
+router.post("/register", register);
+router.post("/login", login);
+router.post("/forgot-password", forgotPassword);
+router.put("/reset-password/:token", resetPassword);
 
 module.exports = router;

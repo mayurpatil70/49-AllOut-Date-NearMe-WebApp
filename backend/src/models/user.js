@@ -1,20 +1,43 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
-const userSchema = new mongoose.Schema({
+const userSchema = new mongoose.Schema(
+  {
     email: { type: String, required: true, unique: true },
     password: { type: String, required: true },
-    isEmailVerified: { type: Boolean, default: false },
-    hasLifetimeAccess: { type: Boolean, default: false }, // Requires 9 coins to become true
-    gender: { type: String, enum: ['Male', 'Female', 'Other'] },
+    gender: {
+      type: String,
+      enum: ["Male", "Female", "Other"],
+      default: "Male",
+    },
     walletBalance: { type: Number, default: 0 },
-    fcmToken: { type: String }, // For push notifications
-    profileImage: { type: String },
+    hasLifetimeAccess: { type: Boolean, default: false },
+
+    // New Profile Fields
+    profilePhoto: {
+      type: String,
+      default:
+        "https://res.cloudinary.com/demo/image/upload/v1575909137/avatar.png", // Default placeholder
+    },
+    bio: {
+      type: String,
+      maxLength: 500,
+      default: "",
+    },
+
+    // Geolocation (Already existing, kept for context)
     location: {
-        type: { type: String, enum: ['Point'], default: 'Point' },
-        coordinates: { type: [Number], default: [0, 0] } // [longitude, latitude]
-    }
-}, { timestamps: true });
+      type: { type: String, enum: ["Point"], default: "Point" },
+      coordinates: { type: [Number], default: [0, 0] },
+    },
 
-userSchema.index({ location: '2dsphere' });
+    // Password Reset Fields
+    resetPasswordToken: String,
+    resetPasswordExpire: Date,
+  },
+  { timestamps: true },
+);
 
-module.exports = mongoose.model('User', userSchema);
+// Ensure geospatial index is maintained
+userSchema.index({ location: "2dsphere" });
+
+module.exports = mongoose.model("User", userSchema);

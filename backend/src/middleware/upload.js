@@ -11,12 +11,12 @@ cloudinary.config({
 const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
   params: {
-    folder: "nearme_stories",
-    allowedFormats: ["jpg", "png", "jpeg", "mp4"],
-    resource_type: "auto", // allows both images and videos
+    folder: "nearme_uploads",
+    allowed_formats: ["jpg", "jpeg", "png", "webp"],
+    transformation: [{ width: 1080, height: 1080, crop: "limit" }],
   },
 });
 
-const upload = multer({ storage: storage });
+const upload = multer({ storage });
 
-module.exports = { cloudinary, upload };
+module.exports = upload;

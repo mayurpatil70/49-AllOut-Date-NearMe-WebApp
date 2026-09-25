@@ -1,21 +1,25 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
-const storySchema = new mongoose.Schema({
-    user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    content: { type: String, required: true },
-    imageUrl: { type: String }, // Populated via Cloudinary upload
-    location: {
-        type: { type: String, enum: ['Point'], default: 'Point' },
-        coordinates: { type: [Number], required: true } // [longitude, latitude]
+const storySchema = new mongoose.Schema(
+  {
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
     },
-    createdAt: { 
-        type: Date, 
-        default: Date.now, 
-        expires: 86400 // Automatically deletes the document after 24 hours
-    }
-});
+    mediaUrl: {
+      type: String,
+      required: true,
+    },
+    expiresAt: {
+      type: Date,
+      default: () => Date.now() + 24 * 60 * 60 * 1000, // 24 hours from now
+    },
+  },
+  { timestamps: true },
+);
 
-// 2dsphere index allows nearby users to query stories around them
-storySchema.index({ location: '2dsphere' });
+// Auto-delete stories after 24 hours using a TTL index
+storySchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
-module.exports = mongoose.model('Story', storySchema);
+module.exports = mongoose.model("Story", storySchema);

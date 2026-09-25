@@ -1,51 +1,59 @@
-const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-const { createAdapter } = require('@socket.io/redis-adapter');
-const cors = require('cors');
-require('dotenv').config();
+require("dotenv").config();
+const express = require("express");
+const cors = require("cors");
+const mongoose = require("mongoose");
 
-const connectDB = require('./config/db');
-const { redisClient, connectRedis } = require('./config/redis');
+// Import Redis Client (It now connects automatically on import)
+const redisClient = require("./config/redis");
+
+// Import Routes
+const authRoutes = require("./routes/auth.routes");
+const userRoutes = require("./routes/user.routes");
+const walletRoutes = require("./routes/wallet.routes");
+const chatRoutes = require("./routes/chat.routes");
+const storyRoutes = require("./routes/story.routes");
+const paymentRoutes = require("./routes/payment.routes");
 
 const app = express();
-const server = http.createServer(app);
 
+// Middleware
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Initialize Socket.io with Redis for cluster scaling
-const io = new Server(server, { cors: { origin: '*' } });
-const pubClient = redisClient.duplicate();
-const subClient = redisClient.duplicate();
+// Route Middleware
+app.use("/api/auth", authRoutes);
+app.use("/api/users", userRoutes);
+app.use("/api/wallet", walletRoutes);
+app.use("/api/chat", chatRoutes);
+app.use("/api/stories", storyRoutes);
+app.use("/api/payments", paymentRoutes);
 
-Promise.all([pubClient.connect(), subClient.connect()]).then(() => {
-    io.adapter(createAdapter(pubClient, subClient));
+// Global Error Handler
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res
+    .status(500)
+    .json({ message: "Internal Server Error", error: err.message });
 });
 
-// Pass io instance to socket handlers
-require('./sockets/chat.socket')(io);
+// Database Connections & Server Initialization
+const PORT = process.env.PORT || 5000;
 
-// Routes
-app.use('/api/auth', require('./routes/auth.routes'));
-app.use('/api/users', require('./routes/user.routes'));
-app.use('/api/wallet', require('./routes/wallet.routes'));
-app.use('/api/chat', require('./routes/chat.routes'));
-
-// Database & Server Initialization
 const startServer = async () => {
-    try {
-        await connectDB();
-        await connectRedis();
-        
-        const PORT = process.env.PORT || 5000;
-        server.listen(PORT, () => {
-            console.log(`Server running on port ${PORT}`);
-        });
-    } catch (error) {
-        console.error("Failed to start server:", error);
-        process.exit(1);
-    }
+  try {
+    // Connect to MongoDB
+    await mongoose.connect(process.env.MONGO_URI);
+    console.log("MongoDB Connected");
+
+    // Start Express Server
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+  } catch (error) {
+    console.error("Failed to start server:", error);
+    process.exit(1);
+  }
 };
 
 startServer();

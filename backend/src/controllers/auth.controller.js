@@ -1,73 +1,153 @@
-const User = require('../models/User');
-const bcrypt = require('bcrypt');
-const jwt = require('jsonwebtoken');
-const { redisClient } = require('../config/redis');
-const resend = require('../config/resend');
+const User = require("../models/User");
+const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
+const nodemailer = require("nodemailer");
 
-const generateToken = (id) => jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '30d' });
+// Helper function to generate JWT token for authentication
+const generateToken = (id) => {
+  return jwt.sign({ id }, process.env.JWT_SECRET, {
+    expiresIn: "30d",
+  });
+};
 
+// Register a new user
 exports.register = async (req, res) => {
-    try {
-        const { email, password, gender } = req.body;
-        
-        const userExists = await User.findOne({ email });
-        if (userExists) return res.status(400).json({ message: 'User already exists' });
+  try {
+    const { email, password, gender } = req.body;
 
-        const hashedPassword = await bcrypt.hash(password, 10);
-        await User.create({ email, password: hashedPassword, gender });
-
-        const otp = Math.floor(100000 + Math.random() * 900000);
-        await redisClient.set(`otp:${email}`, otp, { EX: 300 }); // Expires in 5 mins
-
-        await resend.emails.send({
-            from: 'onboarding@yourdomain.com', // Replace when you have a verified domain
-            to: email,
-            subject: 'Verify your NearMe account',
-            html: `<p>Your OTP is: <strong>${otp}</strong>. Valid for 5 minutes.</p>`
-        });
-
-        res.status(201).json({ message: 'User registered. OTP sent to email.' });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
+    // Check if user already exists
+    const userExists = await User.findOne({ email });
+    if (userExists) {
+      return res.status(400).json({ message: "User already exists" });
     }
+
+    // Create new user (Make sure your User model hashes the password before saving)
+    const user = await User.create({
+      email,
+      password,
+      gender,
+    });
+
+    if (user) {
+      res.status(201).json({
+        _id: user._id,
+        email: user.email,
+        token: generateToken(user._id),
+      });
+    } else {
+      res.status(400).json({ message: "Invalid user data" });
+    }
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
 };
 
-exports.verifyOTP = async (req, res) => {
-    try {
-        const { email, otp } = req.body;
-        const storedOtp = await redisClient.get(`otp:${email}`);
-
-        if (storedOtp !== otp) return res.status(400).json({ message: 'Invalid or expired OTP' });
-
-        const user = await User.findOneAndUpdate({ email }, { isEmailVerified: true }, { new: true });
-        await redisClient.del(`otp:${email}`);
-
-        res.json({
-            message: 'Email verified successfully',
-            token: generateToken(user._id),
-            user: { id: user._id, email: user.email, hasLifetimeAccess: user.hasLifetimeAccess, walletBalance: user.walletBalance }
-        });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-};
-
+// Login an existing user
 exports.login = async (req, res) => {
-    try {
-        const { email, password } = req.body;
-        const user = await User.findOne({ email });
+  try {
+    const { email, password } = req.body;
 
-        if (user && (await bcrypt.compare(password, user.password))) {
-            if (!user.isEmailVerified) return res.status(401).json({ message: 'Please verify your email first' });
-            
-            res.json({
-                token: generateToken(user._id),
-                user: { id: user._id, email: user.email, hasLifetimeAccess: user.hasLifetimeAccess, walletBalance: user.walletBalance }
-            });
-        } else {
-            res.status(401).json({ message: 'Invalid email or password' });
-        }
-    } catch (error) {
-        res.status(500).json({ error: error.message });
+    const user = await User.findOne({ email });
+
+    // Assuming your User model has a matchPassword method configured with bcrypt
+    if (user && (await user.matchPassword(password))) {
+      res.json({
+        _id: user._id,
+        email: user.email,
+        token: generateToken(user._id),
+      });
+    } else {
+      res.status(401).json({ message: "Invalid email or password" });
     }
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+};
+
+// Generate token and send password reset email
+exports.forgotPassword = async (req, res) => {
+  try {
+    const user = await User.findOne({ email: req.body.email });
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    // Generate a random reset token
+    const resetToken = crypto.randomBytes(20).toString("hex");
+
+    // Save the token and an expiration time (1 hour from now) to the database
+    user.resetPasswordToken = resetToken;
+    user.resetPasswordExpire = Date.now() + 3600000;
+
+    await user.save();
+
+    // Configure Nodemailer to use your Gmail App Password
+    const transporter = nodemailer.createTransport({
+      service: "Gmail",
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+    });
+
+    // The URL points back to the React frontend route we just created
+    const resetUrl = `http://localhost:3000/reset-password/${resetToken}`;
+
+    const mailOptions = {
+      to: user.email,
+      from: process.env.EMAIL_USER,
+      subject: "NearMe Password Reset Request",
+      text: `You are receiving this because you requested a password reset.\n\n
+                   Please click on the following link to complete the process:\n\n
+                   ${resetUrl}\n\n
+                   If you did not request this, please ignore this email.`,
+    };
+
+    // Send the email
+    await transporter.sendMail(mailOptions);
+    res
+      .status(200)
+      .json({ message: "Password reset link sent to registered email" });
+  } catch (error) {
+    // If sending the email fails, clear the token fields from the database
+    if (req.body.email) {
+      const user = await User.findOne({ email: req.body.email });
+      if (user) {
+        user.resetPasswordToken = undefined;
+        user.resetPasswordExpire = undefined;
+        await user.save({ validateBeforeSave: false });
+      }
+    }
+    res
+      .status(500)
+      .json({ message: "Error sending email", error: error.message });
+  }
+};
+
+// Verify token and update to the new password
+exports.resetPassword = async (req, res) => {
+  try {
+    // Find the user by the token provided in the URL, ensuring it hasn't expired
+    const user = await User.findOne({
+      resetPasswordToken: req.params.token,
+      resetPasswordExpire: { $gt: Date.now() },
+    });
+
+    if (!user) {
+      return res.status(400).json({ message: "Invalid or expired token" });
+    }
+
+    // Set the new password and clear the reset tokens
+    user.password = req.body.password;
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpire = undefined;
+
+    // Saving the user will trigger the pre-save hook in your Mongoose model to hash the new password
+    await user.save();
+
+    res.status(200).json({
+      message: "Password updated successfully",
+      token: generateToken(user._id),
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
 };
